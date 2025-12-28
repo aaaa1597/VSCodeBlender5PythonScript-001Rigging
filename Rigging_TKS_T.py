@@ -12,12 +12,15 @@ scene.frame_start = 1
 scene.frame_end = 40
 
 # =========================
-# 2. T メッシュ作成
+# 2. Text → Mesh（回転適用込み）
 # =========================
-bpy.ops.object.text_add(location=(0, 0, 0), rotation=(math.radians(90), 0, 0))
+bpy.ops.object.text_add(location=(0, 0, 0))
 txt = bpy.context.object
 txt.data.body = "T"
 txt.data.size = 1.0
+
+# 正面を向かせる（起こす）
+txt.rotation_euler = (math.radians(90), 0, 0)
 
 # Mesh化
 bpy.ops.object.convert(target='MESH')
@@ -28,26 +31,52 @@ mesh.name = "T_mesh"
 solid = mesh.modifiers.new(name="Solidify", type='SOLIDIFY')
 solid.thickness = 0.15
 
-# スケール適用
+# 回転・スケールを適用
 bpy.context.view_layer.objects.active = mesh
-bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-# 原点をジオメトリ中心 → Z下端へ調整
-bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
 # =========================
-# 3. メッシュ寸法取得
+# 3. 原点を足元中央に
+# =========================
+import mathutils
+
+# メッシュのバウンディングボックス（ローカル）
+bbox = [mathutils.Vector(v) for v in mesh.bound_box]
+
+# 最小値/最大値取得
+min_x = min(v.x for v in bbox)
+max_x = max(v.x for v in bbox)
+min_y = min(v.y for v in bbox)
+max_y = max(v.y for v in bbox)
+min_z = min(v.z for v in bbox)
+center_x = (min_x + max_x) * 0.5
+center_y = (min_y + max_y) * 0.5
+
+# ワールド座標に変換
+local_point = mathutils.Vector((center_x, center_y, min_z))
+world_point = mesh.matrix_world @ local_point
+
+# 3Dカーソルを足元へ
+cursor = bpy.context.scene.cursor
+cursor.location = world_point
+
+# 原点を3Dカーソルへ
+bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+
+# =========================
+# 4. 寸法取得（Zが高さ）
 # =========================
 dims = mesh.dimensions
 width = dims.x
 height = dims.z
 
 # =========================
-# 4. アーマチュア作成
+# 5. アーマチュア作成
 # =========================
-bpy.ops.object.armature_add(location=mesh.location)
+bpy.ops.object.armature_add()
 arm = bpy.context.object
 arm.name = "T_rig"
+arm.location = mesh.location
 
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.mode_set(mode='EDIT')
@@ -81,15 +110,19 @@ bar_r.parent = body
 bpy.ops.object.mode_set(mode='OBJECT')
 
 # =========================
-# 5. メッシュとリグを紐付け
+# 6. メッシュとリグを紐付け
 # =========================
 mesh.select_set(True)
 arm.select_set(True)
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.parent_set(type='ARMATURE_AUTO')
 
+# ログ出力
+print("mesh loc:", mesh.location)
+print("arm loc :", arm.location)
+
 # =========================
-# 6. ジャンプアニメーション
+# 7. 簡易ジャンプアニメ
 # =========================
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.mode_set(mode='POSE')
