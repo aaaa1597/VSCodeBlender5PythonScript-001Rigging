@@ -1,5 +1,6 @@
 import bpy
 import math
+import mathutils
 
 # =========================
 # 1. シーン初期化
@@ -12,14 +13,14 @@ scene.frame_start = 1
 scene.frame_end = 40
 
 # =========================
-# 2. Text → Mesh（回転適用込み）
+# 2. Text → Mesh
 # =========================
 bpy.ops.object.text_add(location=(0, 0, 0))
 txt = bpy.context.object
 txt.data.body = "T"
 txt.data.size = 1.0
 
-# 正面を向かせる（起こす）
+# 正面向き
 txt.rotation_euler = (math.radians(90), 0, 0)
 
 # Mesh化
@@ -27,56 +28,44 @@ bpy.ops.object.convert(target='MESH')
 mesh = bpy.context.object
 mesh.name = "T_mesh"
 
-# 厚み追加
+# 厚み
 solid = mesh.modifiers.new(name="Solidify", type='SOLIDIFY')
 solid.thickness = 0.15
 
-# 回転・スケールを適用
-bpy.context.view_layer.objects.active = mesh
+# 回転適用
 bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
 # =========================
 # 3. 原点を足元中央に
 # =========================
-import mathutils
-
-# メッシュのバウンディングボックス（ローカル）
 bbox = [mathutils.Vector(v) for v in mesh.bound_box]
 
-# 最小値/最大値取得
 min_x = min(v.x for v in bbox)
 max_x = max(v.x for v in bbox)
 min_y = min(v.y for v in bbox)
 max_y = max(v.y for v in bbox)
 min_z = min(v.z for v in bbox)
+
 center_x = (min_x + max_x) * 0.5
 center_y = (min_y + max_y) * 0.5
 
-# ワールド座標に変換
-local_point = mathutils.Vector((center_x, center_y, min_z))
-world_point = mesh.matrix_world @ local_point
+cursor = scene.cursor
+cursor.location = mesh.matrix_world @ mathutils.Vector((center_x, center_y, min_z))
 
-# 3Dカーソルを足元へ
-cursor = bpy.context.scene.cursor
-cursor.location = world_point
-
-# 原点を3Dカーソルへ
 bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
 
 # =========================
-# 4. 寸法取得（Zが高さ）
+# 4. サイズ取得
 # =========================
-dims = mesh.dimensions
-width = dims.x
-height = dims.z
+width = mesh.dimensions.x
+height = mesh.dimensions.z
 
 # =========================
 # 5. アーマチュア作成
 # =========================
-bpy.ops.object.armature_add()
+bpy.ops.object.armature_add(location=mesh.location)
 arm = bpy.context.object
 arm.name = "T_rig"
-arm.location = mesh.location
 
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.mode_set(mode='EDIT')
@@ -117,49 +106,73 @@ arm.select_set(True)
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.parent_set(type='ARMATURE_AUTO')
 
-# ログ出力
-print("mesh loc:", mesh.location)
-print("arm loc :", arm.location)
+# =========================
+# 7. ジャンプアニメーション
+# =========================
 
-# =========================
-# 7. 簡易ジャンプアニメ
-# =========================
+# --- ジャンプ（アーマチュア全体） ---
+def key_obj(obj, frame):
+    obj.keyframe_insert(data_path="location", frame=frame)
+
+scene.frame_set(1)
+arm.location = (0, 0, 0)
+key_obj(arm, 1)
+
+scene.frame_set(10)  # ため
+arm.location = (0, 0, -height * 0.1)
+key_obj(arm, 10)
+
+scene.frame_set(20)  # ジャンプ頂点
+arm.location = (0, 0, height * 0.8)
+key_obj(arm, 20)
+
+scene.frame_set(30)  # 着地
+arm.location = (0, 0, 0)
+key_obj(arm, 30)
+
+# --- しなり（ボーン） ---
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.mode_set(mode='POSE')
 
-root_p = arm.pose.bones["root"]
 body_p = arm.pose.bones["body"]
+bar_l_p = arm.pose.bones["bar_L"]
+bar_r_p = arm.pose.bones["bar_R"]
 
-def keyframe(bone, frame):
-    bone.keyframe_insert(data_path="location", frame=frame)
+def key_bone(bone, frame):
     bone.keyframe_insert(data_path="rotation_euler", frame=frame)
 
 # 初期
 scene.frame_set(1)
-root_p.location = (0, 0, 0)
 body_p.rotation_euler = (0, 0, 0)
-keyframe(root_p, 1)
-keyframe(body_p, 1)
+bar_l_p.rotation_euler = (0, 0, 0)
+bar_r_p.rotation_euler = (0, 0, 0)
+key_bone(body_p, 1)
+key_bone(bar_l_p, 1)
+key_bone(bar_r_p, 1)
 
 # ため
 scene.frame_set(10)
-root_p.location = (0, 0, -height * 0.1)
-body_p.rotation_euler = (math.radians(-10), 0, 0)
-keyframe(root_p, 10)
-keyframe(body_p, 10)
+body_p.rotation_euler = (math.radians(-12), 0, 0)
+key_bone(body_p, 10)
 
-# ジャンプ頂点
+# ジャンプ
 scene.frame_set(20)
-root_p.location = (0, 0, height * 0.8)
 body_p.rotation_euler = (math.radians(15), 0, 0)
-keyframe(root_p, 20)
-keyframe(body_p, 20)
+bar_l_p.rotation_euler = (0, math.radians(10), 0)
+bar_r_p.rotation_euler = (0, math.radians(-10), 0)
+key_bone(body_p, 20)
+key_bone(bar_l_p, 20)
+key_bone(bar_r_p, 20)
 
 # 着地
 scene.frame_set(30)
-root_p.location = (0, 0, 0)
 body_p.rotation_euler = (math.radians(-5), 0, 0)
-keyframe(root_p, 30)
-keyframe(body_p, 30)
+bar_l_p.rotation_euler = (0, 0, 0)
+bar_r_p.rotation_euler = (0, 0, 0)
+key_bone(body_p, 30)
+key_bone(bar_l_p, 30)
+key_bone(bar_r_p, 30)
 
 bpy.ops.object.mode_set(mode='OBJECT')
+
+print("DONE: T jump animation (Z-up fixed)")
